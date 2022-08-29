@@ -48,19 +48,6 @@ struct TailT<Typelist<Head, Tail...>> {
 template <typename List>
 using Tail = typename TailT<List>::Type;
 
-// pop from front of typelist
-
-template <typename List>
-class PopFrontT;
-
-template <typename Head, typename... Tail>
-struct PopFrontT<Typelist<Head, Tail...>> {
-    using Type = Typelist<Tail...>;
-};
-
-template <typename List>
-using PopFront = typename PopFrontT<List>::Type;
-
 // push to front of typelist
 
 template <typename List, typename Elem>
@@ -77,7 +64,7 @@ using PushFront = typename PushFrontT<List, Elem>::Type;
 // get nth element of typelist
 
 template <typename List, unsigned N>
-struct NthElementT: NthElementT<PopFront<List>, N-1> {};
+struct NthElementT: NthElementT<Tail<List>, N-1> {};
 
 template <typename List>
 struct NthElementT<List, 0>: HeadT<List> {};
@@ -93,7 +80,7 @@ class LargestTypeT;
 template <typename List>
 class LargestTypeT<List, false> {
     using Head =  Head<List>;
-    using Tail = typename LargestTypeT<PopFront<List>>::Type;
+    using Tail = typename LargestTypeT<Tail<List>>::Type;
 public:
     using Type = typename conditional<(sizeof(Head) >= sizeof(Tail)), Head, Tail>::type;
 };
@@ -129,7 +116,7 @@ template <typename List>
 using Reverse = typename ReverseT<List>::Type;
 
 template <typename List>
-struct ReverseT<List, false> : PushBackT<Reverse<PopFront<List>>, Head<List>> {};
+struct ReverseT<List, false> : PushBackT<Reverse<Tail<List>>, Head<List>> {};
 
 template <typename List>
 struct ReverseT<List, true> {
@@ -139,15 +126,42 @@ struct ReverseT<List, true> {
 // pop back of typelist
 
 template <typename List>
-struct PopBackT : ReverseT<PopFront<Reverse<List>>> {};
+struct PopBackT : ReverseT<Tail<Reverse<List>>> {};
 
 template <typename List>
 using PopBack = typename PopBackT<List>::Type;
 
+// make a type a constant
+
+template <typename T>
+struct AddConstT {
+    using Type = T const;
+};
+
+template <typename T>
+using AddConst = typename AddConstT<T>::Type;
+
+// map template function over typelist
+
+template <typename List, template<typename T> class MetaFun, bool Empty = IsEmpty<List>::value>
+class MapT;
+
+template <typename List, template<typename T> class MetaFun>
+struct MapT<List, MetaFun, true> {
+    using Type = List;
+};
+
+template <typename List, template<typename T> class MetaFun>
+class MapT<List, MetaFun, false> :
+public PushFrontT<typename MapT<Tail<List>, MetaFun>::Type, MetaFun<Head<List>>> {};
+
+template <typename List, template<typename T> class MetaFun>
+using Map = typename MapT<List, MetaFun>::Type;
+
 int main() {
     static_assert(is_same<Head<SignedIntegralTypes>, signed char>::value, "");
     static_assert(is_same<Tail<SignedIntegralTypes>, Typelist<short, int, long, long long>>::value, "");
-    static_assert(is_same<PopFront<Typelist<int, char>>, Typelist<char>>::value, "");
+    static_assert(is_same<Tail<Typelist<int, char>>, Typelist<char>>::value, "");
     static_assert(is_same<PushFront<Typelist<int, char>, bool>, Typelist<bool, int, char>>::value, "");
     static_assert(is_same<NthElement<SignedIntegralTypes, 0>, signed char>::value, "");
     static_assert(is_same<NthElement<SignedIntegralTypes, 1>, short>::value, "");
@@ -157,4 +171,9 @@ int main() {
     static_assert(is_same<PushBack<Typelist<>, bool>, Typelist<bool>>::value, "");
     static_assert(is_same<Reverse<Typelist<bool, int, char>>, Typelist<char, int, bool>>::value, "");
     static_assert(is_same<PopBack<Typelist<int, char>>, Typelist<int>>::value, "");
+    static_assert(is_same<AddConst<char>, char const>::value, "");
+    static_assert(is_same<AddConst<char>, const char>::value, "");
+    static_assert(is_same<AddConst<char*>, char* const>::value, "");
+    static_assert(is_same<Map<SignedIntegralTypes, AddConst>, Typelist<signed char const, short const, int const, long const, long long const>>::value, "");
+    static_assert(is_same<Map<Typelist<char, char, char*, char const * >, AddConst>, Typelist<char const, const char, char * const, const char * const>>::value, "");
 }
