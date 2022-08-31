@@ -158,15 +158,131 @@ public PushFrontT<typename MapT<Tail<List>, MetaFun>::Type, MetaFun<Head<List>>>
 template <typename List, template<typename T> class MetaFun>
 using Map = typename MapT<List, MetaFun>::Type;
 
+// return the larger of two types
+template <typename T, typename U>
+struct LargerTypeT {
+    using Type = typename conditional<sizeof(T) >= sizeof(U), T, U>::type;
+};
+
+template <typename T, typename U>
+using LargerType = typename LargerTypeT<T, U>::Type;
+
+// reduce
+template <typename List, template<typename T, typename U> class F, typename I, bool Empty = IsEmpty<List>::value>
+struct ReduceT;
+
+template <typename List, template<typename T, typename U> class F, typename I>
+struct ReduceT<List, F, I, true> {
+    using Type = I;
+};
+
+template <typename List, template<typename T, typename U> class F, typename I>
+struct ReduceT<List, F, I, false> :
+        public ReduceT<
+            Tail<List>,
+            F,
+            F<I, Head<List>>
+        >{};
+
+template <typename List, template<typename T, typename U> class F, typename I>
+using Reduce = typename ReduceT<List, F, I>::Type;
+
+// get the largest type using an accumulator
+
+template <typename List>
+using LargestTypeAcc = Reduce<List, LargerType, char>;
+
+// reverse using an accumulator
+template <typename List>
+using ReverseAcc = Reduce<List, PushFront, Typelist<>>;
+
+// insertion sort using meta comparison function
+
+template <typename List, template<typename T, typename U> class F, typename V, bool Empty = IsEmpty<List>::value>
+struct InsertSortedT;
+
+template <typename List, template<typename T, typename U> class F, typename V>
+struct InsertSortedT<List, F, V, true> {
+    using Type = PushFront<List, V>;
+};
+
+template <typename List, template<typename T, typename U> class F, typename V>
+struct InsertSortedT<List, F, V, false> {
+    using Type = typename conditional<
+            F<V, Head<List>>::value,
+            PushFront<List, V>,
+            PushFront<
+                    typename InsertSortedT<Tail<List>, F, V>::Type,
+                    Head<List>
+            >
+    >::type;
+};
+
+template <typename List, template<typename T, typename U> class F, bool Empty = IsEmpty<List>::value>
+struct InsertionSortT;
+
+template <typename List, template<typename T, typename U> class F>
+struct InsertionSortT<List, F, true> {
+    using Type = List;
+};
+
+template <typename List, template<typename T, typename U> class F>
+struct InsertionSortT<List, F, false> {
+    using Type = typename InsertSortedT<
+            typename InsertionSortT<Tail<List>, F>::Type,
+            F,
+            Head<List>
+        >::Type;
+};
+
+
+template <typename List, template<typename T, typename U> class F>
+using InsertionSort = typename InsertionSortT<List, F>::Type;
+
+// sort a list of types into order of increasing size
+template <typename T, typename U>
+struct LargerTypeBoolT {
+    static constexpr bool value = is_same<LargerType<T, U>, U>::value;
+};
+
+template <typename List>
+using SortBySize = InsertionSort<List, LargerTypeBoolT>;
+
+// get a list where size of all neighbours are distinct - works like unique program in cli
+
+template <typename List, typename V, bool Empty = IsEmpty<List>::value>
+struct PushIfUniqueT;
+
+template <typename List, typename V>
+class PushIfUniqueT<List, V, false>  {
+    static constexpr bool sizes_differ = sizeof(Head<Reverse<List>>) != sizeof(V);
+public:
+    using Type = typename conditional<sizes_differ, PushBack<List, V>, List>::type;
+};
+
+template <typename List, typename V>
+struct PushIfUniqueT<List, V, true>  {
+    using Type = Typelist<V>;
+};
+
+template <typename List, typename V>
+using PushIfUnique = typename PushIfUniqueT<List, V>::Type;
+
+template <typename List>
+using Unique = Reduce<List, PushIfUnique, Typelist<>>;
+
+
 int main() {
-    static_assert(is_same<Head<SignedIntegralTypes>, signed char>::value, "");
+    using DistinctSignedIntegralTypes = Unique<SignedIntegralTypes>; // long long == long on my machine :(
+
+    static_assert(is_same<Head<DistinctSignedIntegralTypes>, signed char>::value, "");
     static_assert(is_same<Tail<SignedIntegralTypes>, Typelist<short, int, long, long long>>::value, "");
     static_assert(is_same<Tail<Typelist<int, char>>, Typelist<char>>::value, "");
     static_assert(is_same<PushFront<Typelist<int, char>, bool>, Typelist<bool, int, char>>::value, "");
-    static_assert(is_same<NthElement<SignedIntegralTypes, 0>, signed char>::value, "");
-    static_assert(is_same<NthElement<SignedIntegralTypes, 1>, short>::value, "");
-    static_assert(is_same<NthElement<SignedIntegralTypes, 2>, int>::value, "");
-    static_assert(is_same<LargestType<SignedIntegralTypes>, long>::value, ""); // long is long long on this platform, would be better to verify that the return value is the same size as long long but idk how to do this yet
+    static_assert(is_same<NthElement<DistinctSignedIntegralTypes, 0>, signed char>::value, "");
+    static_assert(is_same<NthElement<DistinctSignedIntegralTypes, 1>, short>::value, "");
+    static_assert(is_same<NthElement<DistinctSignedIntegralTypes, 2>, int>::value, "");
+    static_assert(is_same<LargestType<DistinctSignedIntegralTypes>, long>::value, "");
     static_assert(is_same<PushBack<Typelist<int, char>, bool>, Typelist<int, char, bool>>::value, "");
     static_assert(is_same<PushBack<Typelist<>, bool>, Typelist<bool>>::value, "");
     static_assert(is_same<Reverse<Typelist<bool, int, char>>, Typelist<char, int, bool>>::value, "");
@@ -174,6 +290,10 @@ int main() {
     static_assert(is_same<AddConst<char>, char const>::value, "");
     static_assert(is_same<AddConst<char>, const char>::value, "");
     static_assert(is_same<AddConst<char*>, char* const>::value, "");
-    static_assert(is_same<Map<SignedIntegralTypes, AddConst>, Typelist<signed char const, short const, int const, long const, long long const>>::value, "");
+    static_assert(is_same<Map<DistinctSignedIntegralTypes, AddConst>, Typelist<signed char const, short const, int const, long const>>::value, "");
     static_assert(is_same<Map<Typelist<char, char, char*, char const * >, AddConst>, Typelist<char const, const char, char * const, const char * const>>::value, "");
+    static_assert(is_same<LargestTypeAcc<DistinctSignedIntegralTypes>, long>::value, "");
+    static_assert(is_same<LargestTypeAcc<Typelist<>>, char>::value, "");
+    static_assert(is_same<ReverseAcc<Typelist<bool, int, char>>, Typelist<char, int, bool>>::value, "");
+    static_assert(is_same<SortBySize<Reverse<DistinctSignedIntegralTypes>>, DistinctSignedIntegralTypes>::value, "");
 }
